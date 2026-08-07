@@ -42,9 +42,18 @@ if [ "${live_status_detected}" = "false" ]; then
 fi
 ## Live mode.
 
-## No VMs defined is a normal state, but with pipefail the grep that
-## filters the header returns 1 and fails the whole pipeline.
-vm_names_list="$(virsh list --all | awk '{print $2}' | grep -v Name || true)"
+## Header lines are skipped POSITIONALLY, not by matching their text.
+##
+## 'grep -v Name' was substring matching: a VM legitimately named 'NameServer',
+## 'Unnamed' or 'MyName' was silently dropped from the list and never switched,
+## leaving it writable in live mode -- the exact boundary this script enforces.
+##
+## And the '|| true' that made "no VMs defined" survive pipefail also swallowed
+## a REAL virsh failure -- libvirtd down, or no permission -- so the script
+## skipped the loop and exited 0, reporting success while enforcing nothing.
+## 'awk NR>2' needs neither: it emits nothing for an empty list (exit 0) and
+## lets a virsh failure through, which the accumulator then records.
+vm_names_list="$(virsh list --all | awk 'NR>2 {print $2}')" || exit_code="1"
 
 ## Deliberate word splitting: vm_names_list is a newline-separated list.
 # shellcheck disable=SC2086
