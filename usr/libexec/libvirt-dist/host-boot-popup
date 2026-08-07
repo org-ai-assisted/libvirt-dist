@@ -5,6 +5,13 @@
 
 ## https://forums.whonix.org/t/whonix-host-operating-system/3931/236
 
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o errtrace
+shopt -s inherit_errexit
+shopt -s shift_verbose
+
 title="WARNING - Whonix-Host DEVELOPERS-ONLY Preview Version"
 
 text="\
@@ -27,4 +34,4 @@ Help welcome!
 "
 
 mkdir -p ~/.config/whonix/host-boot-popup
-/usr/libexec/msgcollector/one-time-popup.py ~/.config/whonix/host-boot-popup/dismissed_version_1 "$title" "$text"
+/usr/libexec/msgcollector/one-time-popup.py ~/.config/whonix/host-boot-popup/dismissed_version_1 "${title}" "${text}"

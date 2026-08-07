@@ -5,9 +5,21 @@
 
 ## Similar to live-mode-to-read-only.
 
-set -x
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o errtrace
+shopt -s inherit_errexit
+shopt -s shift_verbose
 
+## The ERR trap records a failure and lets the script CONTINUE, so that every
+## VM is processed and the problem is reported once at the end. errexit would
+## abort at the first failing VM instead, leaving the rest untouched -- so every
+## fallible command below records its own failure with '|| exit_code="1"' and
+## errexit never fires for it. The trap stays for anything unanticipated.
 error_handler() {
+   ## Reached only through the ERR trap installed below.
+   # shellcheck disable=SC2317
    exit_code="1"
 }
 
@@ -15,22 +27,36 @@ trap error_handler ERR
 
 exit_code="0"
 
+# shellcheck source=../../../../helper-scripts/usr/libexec/helper-scripts/live-mode.sh
+## Sibling repo: absent in an isolated CI checkout, so shellcheck cannot follow
+## it there. The source= path above still documents where it lives.
+# shellcheck disable=SC1091
 source /usr/libexec/helper-scripts/live-mode.sh
 
-if [ "$live_status_detected" = "true" ]; then
+## Assigned by the sourced live-mode.sh above.
+# shellcheck disable=SC2154
+if [ "${live_status_detected}" = "true" ]; then
    ## Live mode.
-   true "$0: INFO: Live mode detected. Doing nothing. Exiting."
+   true "${0}: INFO: Live mode detected. Doing nothing. Exiting."
    exit 0
 fi
 ## Persistent mode.
 
-vm_names_list="$(virsh list --all | awk '{print $2}'| grep -v Name)"
+## No VMs defined is a normal state, but with pipefail the grep that
+## filters the header returns 1 and fails the whole pipeline.
+vm_names_list="$(virsh list --all | awk '{print $2}' | grep -v Name || true)"
 
-for vm_name_item in $vm_names_list ; do
-   virt-xml "$vm_name_item" --edit --disk readonly=off
+## Deliberate word splitting: vm_names_list is a newline-separated list.
+# shellcheck disable=SC2086
+for vm_name_item in ${vm_names_list} ; do
+   virt-xml "${vm_name_item}" --edit --disk readonly=off || exit_code="1"
 done
 
-chmod --verbose --recursive ug+w "/var/lib/libvirt/images/Whonix-Gateway.qcow2"
-chmod --verbose --recursive ug+w "/var/lib/libvirt/images/Whonix-Workstation.qcow2"
+## Unlike live-mode-to-read-only these are NOT guarded by a 'test -f', so a
+## missing image is a chmod failure. Before this pass the ERR trap recorded
+## it and the NEXT chmod still ran; under errexit the second one would be
+## skipped, which is how one image could silently stay read-only.
+chmod --verbose --recursive ug+w "/var/lib/libvirt/images/Whonix-Gateway.qcow2" || exit_code="1"
+chmod --verbose --recursive ug+w "/var/lib/libvirt/images/Whonix-Workstation.qcow2" || exit_code="1"
 
-exit "$exit_code"
+exit "${exit_code}"

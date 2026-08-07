@@ -5,9 +5,21 @@
 
 ## Similar to persistent-mode-to-read-write.
 
-set -x
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o errtrace
+shopt -s inherit_errexit
+shopt -s shift_verbose
 
+## The ERR trap records a failure and lets the script CONTINUE, so that every
+## VM is processed and the problem is reported once at the end. errexit would
+## abort at the first failing VM instead, leaving the rest untouched -- so every
+## fallible command below records its own failure with '|| exit_code="1"' and
+## errexit never fires for it. The trap stays for anything unanticipated.
 error_handler() {
+   ## Reached only through the ERR trap installed below.
+   # shellcheck disable=SC2317
    exit_code="1"
 }
 
@@ -15,30 +27,40 @@ trap error_handler ERR
 
 exit_code="0"
 
+# shellcheck source=../../../../helper-scripts/usr/libexec/helper-scripts/live-mode.sh
+## Sibling repo: absent in an isolated CI checkout, so shellcheck cannot follow
+## it there. The source= path above still documents where it lives.
+# shellcheck disable=SC1091
 source /usr/libexec/helper-scripts/live-mode.sh
 
-if [ "$live_status_detected" = "false" ]; then
+## Assigned by the sourced live-mode.sh above.
+# shellcheck disable=SC2154
+if [ "${live_status_detected}" = "false" ]; then
    ## Persistent mode.
-   true "$0: INFO: Persistent mode detected. Doing nothing. Exiting."
+   true "${0}: INFO: Persistent mode detected. Doing nothing. Exiting."
    exit 0
 fi
 ## Live mode.
 
-vm_names_list="$(virsh list --all | awk '{print $2}'| grep -v Name)"
+## No VMs defined is a normal state, but with pipefail the grep that
+## filters the header returns 1 and fails the whole pipeline.
+vm_names_list="$(virsh list --all | awk '{print $2}' | grep -v Name || true)"
 
-for vm_name_item in $vm_names_list ; do
-   virt-xml "$vm_name_item" --edit --disk readonly=on
+## Deliberate word splitting: vm_names_list is a newline-separated list.
+# shellcheck disable=SC2086
+for vm_name_item in ${vm_names_list} ; do
+   virt-xml "${vm_name_item}" --edit --disk readonly=on || exit_code="1"
 done
 
 ## https://forums.whonix.org/t/whonix-host-live-enable-kvm-readonly-mode-virt-xml-vm-name-edit-disk-readonly-on/18525
 if test -f "/var/lib/libvirt/images/Whonix-Gateway.qcow2" ; then
-   chmod --verbose --recursive ugo-w "/var/lib/libvirt/images/Whonix-Gateway.qcow2"
+   chmod --verbose --recursive ugo-w "/var/lib/libvirt/images/Whonix-Gateway.qcow2" || exit_code="1"
 fi
 if test -f "/var/lib/libvirt/images/Whonix-Workstation.qcow2" ; then
-   chmod --verbose --recursive ugo-w "/var/lib/libvirt/images/Whonix-Workstation.qcow2"
+   chmod --verbose --recursive ugo-w "/var/lib/libvirt/images/Whonix-Workstation.qcow2" || exit_code="1"
 fi
 
 ## "chmod ugo-r" is set during build in chroot:
 ## https://github.com/Whonix/Whonix/blob/master/build-steps.d/*_copy_vms_into_raw
 
-exit "$exit_code"
+exit "${exit_code}"
