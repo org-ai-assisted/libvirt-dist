@@ -14,24 +14,18 @@ set -o errtrace
 shopt -s inherit_errexit
 shopt -s shift_verbose
 
-## The ERR trap records a failure and lets the script CONTINUE, so that every
-## VM is processed and the problem is reported once at the end. errexit would
-## abort at the first failing VM instead, leaving the rest untouched -- so every
-## fallible command below records its own failure with '|| exit_code="1"' and
-## errexit never fires for it. The trap stays for anything unanticipated.
-error_handler() {
-   ## Reached only through the ERR trap installed below.
-   # shellcheck disable=SC2317
-   exit_code="1"
-}
-
-trap error_handler ERR
+## No ERR trap by design. errexit cannot be prevented from exiting the script
+## by a trap, the script would exit immediately after the handler finishes
+## execution.
 
 exit_code="0"
 
 # shellcheck source=../../../../helper-scripts/usr/libexec/helper-scripts/live-mode.sh
 ## Sibling repo: absent in an isolated CI checkout, so shellcheck cannot follow
 ## it there. The source= path above still documents where it lives.
+##
+## TODO: Can we just avoid using shellcheck unless the full derivative-maker
+## repo is present? Maybe this doesn't have to be checked in isolation?
 # shellcheck disable=SC1091
 source /usr/libexec/helper-scripts/live-mode.sh
 
@@ -44,17 +38,8 @@ if [ "${live_status_detected}" = "false" ]; then
 fi
 ## Live mode.
 
-## Header lines are skipped POSITIONALLY, not by matching their text.
-##
-## 'grep -v Name' was substring matching: a VM legitimately named 'NameServer',
-## 'Unnamed' or 'MyName' was silently dropped from the list and never switched,
-## leaving it writable in live mode -- the exact boundary this script enforces.
-##
-## And the '|| true' that made "no VMs defined" survive pipefail also swallowed
-## a REAL virsh failure -- libvirtd down, or no permission -- so the script
-## skipped the loop and exited 0, reporting success while enforcing nothing.
-## 'awk NR>2' needs neither: it emits nothing for an empty list (exit 0) and
-## lets a virsh failure through, which the accumulator then records.
+## VM names are provided in the second column of the table virsh outputs. The
+## table has two header lines we must skip.
 vm_names_list="$(virsh list --all | awk 'NR>2 {print $2}')" || exit_code="1"
 
 ## Deliberate word splitting: vm_names_list is a newline-separated list.

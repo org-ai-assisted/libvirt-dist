@@ -85,7 +85,7 @@ main() {
    true "${separator_line}"
 
    if virsh -c qemu:///session capabilities \
-      | grep --quiet --fixed-strings -- "<domain type='kvm'>"; then
+      | grep --quiet -- "<domain type='kvm'/\?>"; then
       log notice "KVM available: testing the XML unmodified."
    else
       log notice "KVM unavailable (CI / Qubes / nested virt): rewriting domain type 'kvm' -> 'qemu'."
