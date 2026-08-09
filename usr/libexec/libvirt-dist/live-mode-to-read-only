@@ -22,10 +22,10 @@ exit_code="0"
 
 # shellcheck source=../../../../helper-scripts/usr/libexec/helper-scripts/live-mode.sh
 ## Sibling repo: absent in an isolated CI checkout, so shellcheck cannot follow
-## it there. The source= path above still documents where it lives.
-##
-## TODO: Can we just avoid using shellcheck unless the full derivative-maker
-## repo is present? Maybe this doesn't have to be checked in isolation?
+## it there. The source= path above still documents where it lives. The
+## isolation goes away once these run with the full derivative-maker tree
+## present (the dist-ai test move), where 'shellcheck -x' follows the source=
+## directive above and this disable is no longer needed.
 # shellcheck disable=SC1091
 source /usr/libexec/helper-scripts/live-mode.sh
 
