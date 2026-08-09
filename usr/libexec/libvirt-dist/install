@@ -3,8 +3,14 @@
 ## Copyright (C) 2019 - 2025 ENCRYPTED SUPPORT LLC <adrelanos@whonix.org>
 ## See the file COPYING for copying conditions.
 
+## Keep the command trace: it is this script's diagnostic output.
 set -x
-set -e
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o errtrace
+shopt -s inherit_errexit
+shopt -s shift_verbose
 
 ## {{ Taken from qemu-system-common.postinst.
 # Add the kvm group unless it's already there
@@ -44,7 +50,7 @@ virsh -c qemu:///session net-start "Whonix-Internal" || true
 ## Doing the following in a temporary directory to avoid modified files should
 ## this be interrupted in the middle.
 temp_dir="$(mktemp --directory)"
-cp -r /usr/share/libvirt-dist/xml "$temp_dir"
+cp -r /usr/share/libvirt-dist/xml "${temp_dir}"
 
 if virsh capabilities | grep "<domain type='kvm'>" ; then
    true "OK: found KVM"
@@ -52,36 +58,36 @@ else
    ## replace the 'kvm' domain type with 'qemu'
    search="<domain type='kvm'>"
    replace="<domain type='qemu'>"
-   str_replace "$search" "$replace" "$temp_dir/xml/Whonix-Gateway.xml"
-   str_replace "$search" "$replace" "$temp_dir/xml/Whonix-Workstation.xml"
+   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
+   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
 
    search="<cpu mode='host-passthrough'/>"
    replace=""
-   str_replace "$search" "$replace" "$temp_dir/xml/Whonix-Gateway.xml"
-   str_replace "$search" "$replace" "$temp_dir/xml/Whonix-Workstation.xml"
+   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
+   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
 
    ## https://forums.whonix.org/t/whonix-host-operating-system/3931/251
    search="<pvspinlock state='on'/>"
    replace=""
-   str_replace "$search" "$replace" "$temp_dir/xml/Whonix-Gateway.xml"
-   str_replace "$search" "$replace" "$temp_dir/xml/Whonix-Workstation.xml"
+   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
+   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
 
    ## https://forums.whonix.org/t/whonix-host-operating-system/3931/284
    search="<vcpu placement='static' cpuset='0'>1</vcpu>"
    replace=""
-   str_replace "$search" "$replace" "$temp_dir/xml/Whonix-Gateway.xml"
+   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
 
    ## https://forums.whonix.org/t/whonix-host-operating-system/3931/284
    search="<vcpu placement='static' cpuset='1'>1</vcpu>"
    replace=""
-   str_replace "$search" "$replace" "$temp_dir/xml/Whonix-Workstation.xml"
+   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
 fi
 
-test -f "$temp_dir/xml/Whonix-Gateway.xml"
-test -f "$temp_dir/xml/Whonix-Workstation.xml"
+test -f "${temp_dir}/xml/Whonix-Gateway.xml"
+test -f "${temp_dir}/xml/Whonix-Workstation.xml"
 
-virsh -c qemu:///session define "$temp_dir/xml/Whonix-Gateway.xml" || true
-virsh -c qemu:///session define "$temp_dir/xml/Whonix-Workstation.xml" || true
+virsh -c qemu:///session define "${temp_dir}/xml/Whonix-Gateway.xml" || true
+virsh -c qemu:///session define "${temp_dir}/xml/Whonix-Workstation.xml" || true
 
 virt-xml "Whonix-Gateway" --add-device --filesystem source=/mnt/gateway-shared,target=shared,type=mount,accessmode=mapped || true
 virt-xml "Whonix-Workstation" --add-device --filesystem source=/mnt/workstation-shared,target=shared,type=mount,accessmode=mapped || true

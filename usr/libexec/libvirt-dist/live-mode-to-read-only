@@ -5,40 +5,58 @@
 
 ## Similar to persistent-mode-to-read-write.
 
+## Keep the command trace: it is this script's diagnostic output.
 set -x
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o errtrace
+shopt -s inherit_errexit
+shopt -s shift_verbose
 
-error_handler() {
-   exit_code="1"
-}
-
-trap error_handler ERR
+## No ERR trap by design. errexit cannot be prevented from exiting the script
+## by a trap, the script would exit immediately after the handler finishes
+## execution.
 
 exit_code="0"
 
+# shellcheck source=../../../../helper-scripts/usr/libexec/helper-scripts/live-mode.sh
+## Sibling repo: absent in an isolated CI checkout, so shellcheck cannot follow
+## it there. The source= path above still documents where it lives.
+##
+## TODO: Can we just avoid using shellcheck unless the full derivative-maker
+## repo is present? Maybe this doesn't have to be checked in isolation?
+# shellcheck disable=SC1091
 source /usr/libexec/helper-scripts/live-mode.sh
 
-if [ "$live_status_detected" = "false" ]; then
+## Assigned by the sourced live-mode.sh above.
+# shellcheck disable=SC2154
+if [ "${live_status_detected}" = "false" ]; then
    ## Persistent mode.
-   true "$0: INFO: Persistent mode detected. Doing nothing. Exiting."
+   true "${0}: INFO: Persistent mode detected. Doing nothing. Exiting."
    exit 0
 fi
 ## Live mode.
 
-vm_names_list="$(virsh list --all | awk '{print $2}'| grep -v Name)"
+## VM names are provided in the second column of the table virsh outputs. The
+## table has two header lines we must skip.
+vm_names_list="$(virsh list --all | awk 'NR>2 {print $2}')" || exit_code="1"
 
-for vm_name_item in $vm_names_list ; do
-   virt-xml "$vm_name_item" --edit --disk readonly=on
+## Deliberate word splitting: vm_names_list is a newline-separated list.
+# shellcheck disable=SC2086
+for vm_name_item in ${vm_names_list} ; do
+   virt-xml "${vm_name_item}" --edit --disk readonly=on || exit_code="1"
 done
 
 ## https://forums.whonix.org/t/whonix-host-live-enable-kvm-readonly-mode-virt-xml-vm-name-edit-disk-readonly-on/18525
 if test -f "/var/lib/libvirt/images/Whonix-Gateway.qcow2" ; then
-   chmod --verbose --recursive ugo-w "/var/lib/libvirt/images/Whonix-Gateway.qcow2"
+   chmod --verbose --recursive ugo-w "/var/lib/libvirt/images/Whonix-Gateway.qcow2" || exit_code="1"
 fi
 if test -f "/var/lib/libvirt/images/Whonix-Workstation.qcow2" ; then
-   chmod --verbose --recursive ugo-w "/var/lib/libvirt/images/Whonix-Workstation.qcow2"
+   chmod --verbose --recursive ugo-w "/var/lib/libvirt/images/Whonix-Workstation.qcow2" || exit_code="1"
 fi
 
 ## "chmod ugo-r" is set during build in chroot:
 ## https://github.com/Whonix/Whonix/blob/master/build-steps.d/*_copy_vms_into_raw
 
-exit "$exit_code"
+exit "${exit_code}"
