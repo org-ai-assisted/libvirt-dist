@@ -1,12 +1,10 @@
 ---
 name: libvirt XML test
 
-## TODO: This CI test is unusual in that the test script is in-repo, and is
-## even more unusual because the CI test script is installed on end-user
-## systems. Furthermore, dependabot.yml is present here, despite our project
-## policy of including it in the org-ai-assisted fork only. Are the tests set
-## up properly, or should we remove dependabot.yml and move the tests to
-## dist-ai?
+## TODO: Move this CI test to dist-ai and drop .github/dependabot.yml from this
+## repo (dependabot belongs in the org-ai-assisted fork only, per project
+## policy). The test script living in-repo AND installed on end-user systems is
+## the reason to relocate it. Tracked for the dist-ai test move.
 
 on:
   push:
