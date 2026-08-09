@@ -36,16 +36,54 @@ mkdir --parents /mnt/workstation-shared
 chmod 777 /mnt/gateway-shared
 chmod 777 /mnt/workstation-shared
 
-## TODO: proper error handling. '|| true' can probably be removed.
+## Bring libvirt networks to defined + autostart + running WITHOUT masking real
+## failures: each step is guarded by the network's current state, so a re-run
+## over an already-defined / already-active network is a clean no-op, while a
+## genuine virsh error aborts the postinst (errexit) instead of being swallowed
+## by a '|| true'.
 
-virsh -c qemu:///session net-autostart "default" || true
-virsh -c qemu:///session net-start "default" || true
-virsh -c qemu:///session net-define "/usr/share/libvirt-dist/xml/Whonix-External.xml" || true
-virsh -c qemu:///session net-define "/usr/share/libvirt-dist/xml/Whonix-Internal.xml" || true
-virsh -c qemu:///session net-autostart "Whonix-External" || true
-virsh -c qemu:///session net-start "Whonix-External" || true
-virsh -c qemu:///session net-autostart "Whonix-Internal" || true
-virsh -c qemu:///session net-start "Whonix-Internal" || true
+virsh_session() {
+   virsh -c qemu:///session "$@"
+}
+
+## Exact-match a network name against virsh's list (all networks, or active).
+net_defined() {
+   virsh_session net-list --all --name | grep -Fxq -- "${1}"
+}
+net_active() {
+   virsh_session net-list --name | grep -Fxq -- "${1}"
+}
+
+## Autostart (idempotent) then start (only when not already active) a network
+## that already exists.
+net_enable() {
+   local name
+   name="${1}"
+   virsh_session net-autostart "${name}"
+   if ! net_active "${name}"; then
+      virsh_session net-start "${name}"
+   fi
+}
+
+## Define (only when absent) then enable a network this package ships.
+net_define_and_enable() {
+   local name xml
+   name="${1}"
+   xml="${2}"
+   if ! net_defined "${name}"; then
+      virsh_session net-define "${xml}"
+   fi
+   net_enable "${name}"
+}
+
+## The 'default' network is provided by the environment, not this package, so it
+## is optional: configure it only when present.
+if net_defined "default"; then
+   net_enable "default"
+fi
+
+net_define_and_enable "Whonix-External" "/usr/share/libvirt-dist/xml/Whonix-External.xml"
+net_define_and_enable "Whonix-Internal" "/usr/share/libvirt-dist/xml/Whonix-Internal.xml"
 
 ## Doing the following in a temporary directory to avoid modified files should
 ## this be interrupted in the middle.
@@ -86,11 +124,30 @@ fi
 test -f "${temp_dir}/xml/Whonix-Gateway.xml"
 test -f "${temp_dir}/xml/Whonix-Workstation.xml"
 
-virsh -c qemu:///session define "${temp_dir}/xml/Whonix-Gateway.xml" || true
-virsh -c qemu:///session define "${temp_dir}/xml/Whonix-Workstation.xml" || true
+## 'define' redefines an already-defined domain and returns success, so it is
+## idempotent on its own; dropping '|| true' means a real failure (malformed XML
+## from the substitutions above) aborts the postinst instead of being hidden.
+virsh_session define "${temp_dir}/xml/Whonix-Gateway.xml"
+virsh_session define "${temp_dir}/xml/Whonix-Workstation.xml"
 
-virt-xml "Whonix-Gateway" --add-device --filesystem source=/mnt/gateway-shared,target=shared,type=mount,accessmode=mapped || true
-virt-xml "Whonix-Workstation" --add-device --filesystem source=/mnt/workstation-shared,target=shared,type=mount,accessmode=mapped || true
+## virt-xml --add-device appends UNCONDITIONALLY, so a reinstall would add a
+## duplicate shared-filesystem device. Guard it: add only when the domain's
+## persistent config has no filesystem with this source directory. A genuine
+## virt-xml failure now aborts (errexit) instead of being swallowed by '|| true'.
+domain_has_filesystem_source() {
+   virsh_session dumpxml --inactive "${1}" | grep -Fq "dir='${2}'"
+}
+add_shared_filesystem() {
+   local domain source
+   domain="${1}"
+   source="${2}"
+   if ! domain_has_filesystem_source "${domain}" "${source}"; then
+      virt-xml "${domain}" --add-device --filesystem "source=${source},target=shared,type=mount,accessmode=mapped"
+   fi
+}
+
+add_shared_filesystem "Whonix-Gateway" "/mnt/gateway-shared"
+add_shared_filesystem "Whonix-Workstation" "/mnt/workstation-shared"
 
 mkdir --parents /var/lib/libvirt-dist
 touch /var/lib/libvirt-dist/install.done
