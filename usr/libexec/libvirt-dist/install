@@ -142,7 +142,7 @@ add_shared_filesystem() {
    domain="${1}"
    source="${2}"
    if ! domain_has_filesystem_source "${domain}" "${source}"; then
-      virt-xml "${domain}" --add-device --filesystem "source=${source},target=shared,type=mount,accessmode=mapped"
+      virt-xml --connect qemu:///session "${domain}" --add-device --filesystem "source=${source},target=shared,type=mount,accessmode=mapped"
    fi
 }
 
