@@ -1,9 +1,250 @@
+commit deac5c45722c4b37be3d5788595afb5f541cd2a1
+Merge: 7d00d44 c508ade
+Author: Patrick Schleizer <adrelanos@whonix.org>
+Date:   Sun Aug 9 03:22:21 2026 -0400
+
+    Merge remote-tracking branch 'refs/remotes/ArrayBolt3/arraybolt3/trixie'
+
+commit c508adec029923b5e7ef3b8096ff31c85663f08d
+Author: Aaron Rainbolt <arraybolt3@gmail.com>
+Date:   Fri Aug 7 17:55:52 2026 -0400
+
+    Fixes and TODOs
+
+commit 7306da5a5acf8935cd23f2d6c7dfefba30f4700b
+Merge: 3bc5630 3270f7e
+Author: Aaron Rainbolt <arraybolt3@gmail.com>
+Date:   Fri Aug 7 15:32:41 2026 -0400
+
+    Merge branch 'ai' into arraybolt3/trixie
+
+commit 3270f7e59f5b6ce45d78185a103b5f48e89fe3a7
+Author: claude (dev163 38f9745c-aed1-4fb4-b6ae-9899f20f8de2) <noreply@anthropic.com>
+Date:   Fri Aug 7 14:52:55 2026 -0400
+
+    restore 'set -x' dropped by the strict-mode pass
+
+    The R-010 conversion replaced each script's existing preamble wholesale and did
+    not carry 'set -x' across. That is a silent loss of diagnostic output, and for
+    several of these it is the only output there is:
+
+    - build-time scripts (hardened-kernel build / download / ci_test, tirdad
+      build.sh, initializer-dist chroot-scripts-post.d): the trace IS the build log,
+      so a failing invocation and its expanded arguments become unavailable exactly
+      when they are needed.
+    - boot-time scripts (libvirt-dist, repository-dist-initializer).
+    - scripts whose only messages are 'true "INFO: ..."' lines, which produce
+      nothing on their own -- removing xtrace silences them completely.
+    - test harnesses (tb-updater unit_test, sdwdate-gui fuzzer), where the trace is
+      the point.
+
+    It was also inconsistent: initializer-dist's 80_cleanup kept it while its four
+    siblings in the same directory lost it.
+
+    Nothing asked for this and no commit described it as intentional, so it is
+    restored everywhere it was active.
+
+    Found by codex on initializer-dist. The other 19 files came from auditing the
+    whole pass for the same pattern.
+
+    Testing
+    -------
+
+    Gate exit 0 in an ISOLATED checkout, all eleven packages.
+
+    Audit: ~/strict-pass-tests/audit-stripped-setx.sh, which compares every file
+    changed on an 'ai' branch against org-ai-assisted/master and reports any that
+    had 'set -x' and no longer do.
+
+      before:  examined 43 package(s) on branch ai, 342 changed file(s); 23 stripped
+      after:   examined 43 package(s) on branch ai, 342 changed file(s);  0 stripped
+
+    The audit prints its own coverage, and fails outright if it examines zero
+    packages. Its first version tested '[ -d "$pkg/.git" ]', which is false for a
+    submodule -- .git is a FILE there -- so it skipped all 43 and reported nothing
+    stripped. A count that can be read is the difference between "clean" and "never
+    looked".
+
+commit 8d472a2ab30e4559702254cef5af5c1fc2541b3f
+Merge: 3bf25d8 63f3b49
+Author: claude (dev163 38f9745c-aed1-4fb4-b6ae-9899f20f8de2) <noreply@anthropic.com>
+Date:   Fri Aug 7 12:32:09 2026 -0400
+
+    Merge org-ai-assisted/master into ai
+
+    The branch was created from a stale local master, so its PR diff showed
+    master's newer commits -- including a changelog version bump -- as REMOVALS.
+    Merging rather than rebasing, per the no-history-rewrites rule.
+
+commit 3bf25d81449227f5218873ff65793e33e17bcb39
+Author: claude (dev163 38f9745c-aed1-4fb4-b6ae-9899f20f8de2) <noreply@anthropic.com>
+Date:   Fri Aug 7 12:06:16 2026 -0400
+
+    libvirt-dist: stop masking virsh failures, and stop dropping VMs by name
+
+    An ai-review pass found two problems in the VM listing, one introduced by this
+    branch and one pre-existing. Both leave a VM writable in live mode, which is the
+    boundary these scripts exist to enforce.
+
+      vm_names_list="$(virsh list --all | awk '{print $2}' | grep -v Name || true)"
+
+    1. THE '|| true' SWALLOWED A REAL virsh FAILURE
+    ------------------------------------------------
+
+    It was added in the previous commit so that "no VMs defined" -- a normal state
+    -- would survive pipefail. But it also swallows virsh actually FAILING:
+    libvirtd down, or no permission. The script then gets an empty list, skips the
+    loop entirely, and exits 0, reporting success while having enforced nothing.
+
+    2. 'grep -v Name' WAS SUBSTRING MATCHING (pre-existing)
+    --------------------------------------------------------
+
+    It filters any line CONTAINING "Name", so a VM legitimately called
+    'NameServer', 'Unnamed' or 'MyName' was silently dropped from the list and
+    never switched to read-only.
+
+    Both are fixed by skipping the two header lines POSITIONALLY:
+
+      vm_names_list="$(virsh list --all | awk 'NR>2 {print $2}')" || exit_code="1"
+
+    awk emits nothing for an empty list and exits 0, so "no VMs" still works
+    without a guard; a virsh failure now propagates and is recorded by the
+    accumulator rather than discarded.
+
+    Testing
+    -------
+
+    Gate exit 0 in an ISOLATED checkout.
+
+      13 same/expected, 0 failing
+
+    The ten existing cases are unchanged. Three new ones ASSERT the new behaviour
+    rather than merely noting a difference:
+
+      a VM named NameServer is switched too    old vms=1  ->  new vms=2
+      virsh failure is reported, not swallowed old exit 0 ->  new exit 1
+      same, persistent-mode                    old exit 0 ->  new exit 1
+
+    'old vms=1' is the substring bug caught in the act: the pre-change code
+    switched only one of the two VMs. 'old exit 0' is the masked failure: success
+    reported after enforcing nothing.
+
+    The harness's virsh stub can now fail on demand, which is what made the second
+    pair expressible at all.
+
+commit 49b0a8611c525b4cdd7abcde3a6fb2294edcd1b8
+Merge: f0ce429 7b9cbd9
+Author: claude (dev163 38f9745c-aed1-4fb4-b6ae-9899f20f8de2) <noreply@anthropic.com>
+Date:   Fri Aug 7 10:46:42 2026 -0400
+
+    Merge org-ai-assisted/ai
+
+    The remote branch advanced while this change was being prepared. Merging rather
+    than rebasing, per the no-history-rewrites rule.
+
+commit f0ce4295fc7576b8219fd9463dcee9935f2a6c6e
+Author: claude (dev163 38f9745c-aed1-4fb4-b6ae-9899f20f8de2) <noreply@anthropic.com>
+Date:   Fri Aug 7 10:46:14 2026 -0400
+
+    libvirt-dist: R-010 strict mode for the 4 standalone scripts
+
+    Files: usr/libexec/libvirt-dist/{host-boot-popup,install,live-mode-to-read-only,
+    persistent-mode-to-read-write}.
+
+    errexit would have silently skipped VMs
+    ---------------------------------------
+
+    live-mode-to-read-only and persistent-mode-to-read-write flip every VM's disk
+    between read-only and writable at boot. Neither had 'set -e'. Their design is
+    an ERR trap that RECORDS a failure into exit_code and lets the script CONTINUE,
+    so every VM is processed and the problem is reported once at the end.
+
+    Adding errexit breaks exactly that: the loop would abort at the FIRST failing
+    VM and leave the rest untouched -- in live mode, an image that should have been
+    made read-only silently staying writable. So every fallible command now records
+    its own failure with '|| exit_code="1"' and errexit never fires for it. The
+    trap stays for anything unanticipated.
+
+    The chmods needed the same treatment, and persistent-mode-to-read-write is the
+    worse case: unlike live-mode-to-read-only its two chmods are NOT guarded by a
+    'test -f', so a missing image is a failure -- and under bare errexit the SECOND
+    image would never be touched.
+
+    Also
+    ----
+
+    - 'virsh list --all | awk | grep -v Name' fails under the newly added pipefail
+      when NO VMs are defined, because the grep that strips the header matches
+      nothing. That is a normal state, not an error.
+    - live_status_detected comes from the sourced live-mode.sh: source= path plus
+      the SC1091/SC2154 waivers an isolated checkout needs.
+    - Deliberate word splitting over the VM list kept, with SC2086 stated.
+    - SC2317 on error_handler, which is reached only through the trap.
+
+    Testing
+    -------
+
+    Gate exit 0 in an ISOLATED checkout.
+
+    New harness at ~/strict-pass-tests/lv-test/. virsh and virt-xml are stubbed and
+    the image paths redirected, so no real VM is touched. Ten cases across both
+    scripts: the mode that does nothing, both VMs succeeding, virt-xml FAILING, no
+    VMs defined, and images missing.
+
+    Beyond output and exit code it also compares HOW MANY VMs were actually
+    processed, because that is the property the accumulator design exists to
+    guarantee and an exit code alone cannot show it.
+
+      10 same, 0 differing
+
+    Canary: reverting just the '|| exit_code="1"' guards in
+    persistent-mode-to-read-write gives 8 same, 2 differing -- and the tell is
+    'vms=2' becoming 'vms=1' at an IDENTICAL exit code of 1. Without the VM counter
+    that regression would have looked like a pass.
+
+    Harness note: the first version of this test reported 10 same / 0 differing
+    while exercising nothing. 'virsh list --all' output is COLUMNAR and the scripts
+    take the name with awk '{print $2}'; a single-column stub made every name come
+    out empty, so the loop body never ran. The 'vms=' counter is what exposed it.
+
+commit 63f3b4908e3b1fcb5acdf3cb6721e93fc9d79eef
+Merge: 7d00d44 7b9cbd9
+Author: assisted-by-ai (Bot Account) (Machine Account) <228987186+assisted-by-ai@users.noreply.github.com>
+Date:   Sat Aug 1 05:01:20 2026 -0400
+
+    Merge pull request #4 from org-ai-assisted/ai
+
+    add CodeQL consumer workflow (actions)
+
+commit 7d00d44011f2769631a68d3a4664ed64b4d65560
+Author: Patrick Schleizer <adrelanos@whonix.org>
+Date:   Fri Jul 31 18:03:40 2026 +0000
+
+    bumped changelog version
+
 commit 4caad75102ba5139770ad1afe26c471bb245ac3a
 Merge: 34c5d39 f3341d3
 Author: Patrick Schleizer <adrelanos@whonix.org>
 Date:   Fri Jul 31 13:10:09 2026 -0400
 
     Merge remote-tracking branch 'refs/remotes/org-ai-assisted/master'
+
+commit 7b9cbd901385bd58dad771f1017b847ed07c851c
+Author: claude (dev142 b93fb2c6-e15f-4d45-8566-f3ded893b70e) <noreply@anthropic.com>
+Date:   Fri Jul 31 12:59:15 2026 -0400
+
+    add CodeQL consumer workflow (actions)
+
+    - Replaces GitHub default-setup CodeQL (web-UI state, no file
+      representation) with the org's file-based consumer wrapper.
+    - Byte-identical copy of
+      developer-meta-files/consumer-templates/.github/workflows/.
+    - No .github/dm-consumer.yml needed: consumer-codeql-actions.yml
+      passes no dm-consumer-section.
+    - queries stays the reusable's default security-and-quality,
+      a superset of the security-extended suite default setup used.
+
+    Generated with assistance from Claude Code.
 
 commit f3341d3d828c607903d45abaf0c3d53ea585551c
 Merge: 34c5d39 dac3d1e
