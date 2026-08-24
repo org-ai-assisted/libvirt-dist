@@ -1,0 +1,21 @@
+## Copyright (C) 2026 - 2026 ENCRYPTED SUPPORT LLC <adrelanos@whonix.org>
+## See the file COPYING for copying conditions.
+
+## AI-Assisted
+
+## Per-repo parameters for developer-meta-files consumer workflows, read at
+## workflow runtime.
+##
+## The libvirt-dist dist-ai suite drives qemu:///session (libvirt-daemon + qemu,
+## no KVM) to define/undefine each shipped domain XML and import an image into a
+## dir storage pool, and validates the XML against libvirt's RNG schema
+## (virt-xml-validate shells out to xmllint from libxml2-utils). adduser lets the
+## suite drop to a non-root user, which qemu:///session requires.
+dist-ai-tests:
+  apt-packages: "qemu-system-x86 qemu-system-modules-spice qemu-utils libvirt-clients libvirt-daemon-system libvirt-daemon libxml2-utils adduser safe-rm"
+  ## live-mode-to-read-only and persistent-mode-to-read-write source
+  ## helper-scripts' live-mode.sh by the '${HELPER_SCRIPTS_PATH:-}' path with a
+  ## relative '# shellcheck source=' directive. Provide helper-scripts as the
+  ## repo sibling so the pre-push-static gate's shellcheck FOLLOWS the source
+  ## instead of emitting SC1091 -- no per-line '# shellcheck disable=SC1091'.
+  helper-scripts: true

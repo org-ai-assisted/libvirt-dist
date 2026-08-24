@@ -13,6 +13,7 @@ set -o pipefail
 set -o errtrace
 shopt -s inherit_errexit
 shopt -s shift_verbose
+export LC_ALL=C
 
 ## No ERR trap by design. errexit cannot be prevented from exiting the script
 ## by a trap, the script would exit immediately after the handler finishes
@@ -21,13 +22,7 @@ shopt -s shift_verbose
 exit_code="0"
 
 # shellcheck source=../../../../helper-scripts/usr/libexec/helper-scripts/live-mode.sh
-## Sibling repo: absent in an isolated CI checkout, so shellcheck cannot follow
-## it there. The source= path above still documents where it lives.
-##
-## TODO: Can we just avoid using shellcheck unless the full derivative-maker
-## repo is present? Maybe this doesn't have to be checked in isolation?
-# shellcheck disable=SC1091
-source /usr/libexec/helper-scripts/live-mode.sh
+source "${HELPER_SCRIPTS_PATH:-}"/usr/libexec/helper-scripts/live-mode.sh
 
 ## Assigned by the sourced live-mode.sh above.
 # shellcheck disable=SC2154
@@ -48,13 +43,13 @@ for vm_name_item in ${vm_names_list} ; do
    virt-xml "${vm_name_item}" --edit --disk readonly=off || exit_code="1"
 done
 
-## Unlike live-mode-to-read-only these are NOT guarded by a 'test -f', so a
-## missing image is a chmod failure. Before this pass the ERR trap recorded
-## it and the NEXT chmod still ran; under errexit the second one would be
-## skipped, which is how one image could silently stay read-only.
-##
-## TODO: Why not just add an `if test -f ...` wrapper?
-chmod --verbose --recursive ug+w "/var/lib/libvirt/images/Whonix-Gateway.qcow2" || exit_code="1"
-chmod --verbose --recursive ug+w "/var/lib/libvirt/images/Whonix-Workstation.qcow2" || exit_code="1"
+## Guarded by 'test -f' to match live-mode-to-read-only: a not-installed VM
+## image is skipped rather than counted as a chmod failure.
+if test -f "/var/lib/libvirt/images/Whonix-Gateway.qcow2" ; then
+   chmod --verbose --recursive ug+w "/var/lib/libvirt/images/Whonix-Gateway.qcow2" || exit_code="1"
+fi
+if test -f "/var/lib/libvirt/images/Whonix-Workstation.qcow2" ; then
+   chmod --verbose --recursive ug+w "/var/lib/libvirt/images/Whonix-Workstation.qcow2" || exit_code="1"
+fi
 
 exit "${exit_code}"
