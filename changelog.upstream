@@ -1,3 +1,173 @@
+commit 69f422814483c1b0074d8037189ebcd784f775d8
+Merge: e37b2e3 29ded57
+Author: Patrick Schleizer <adrelanos@whonix.org>
+Date:   Mon Aug 24 01:52:13 2026 -0400
+
+    Merge remote-tracking branch 'refs/remotes/org-ai-assisted/ai'
+
+commit 29ded5719aa9d3eb1daf96170a35612c0cccb099
+Author: claude (dev272 e8b76afb-795c-4739-8ebd-023de854021e) <noreply@anthropic.com>
+Date:   Fri Aug 21 04:00:23 2026 -0400
+
+    libvirt-dist: source live-mode.sh via HELPER_SCRIPTS_PATH, drop SC1091 disable
+
+    - live-mode-to-read-only, persistent-mode-to-read-write: use
+      source "${HELPER_SCRIPTS_PATH:-}"/usr/libexec/helper-scripts/live-mode.sh;
+      drop the dead '# shellcheck disable=SC1091' and the stale isolation note.
+    - .github/dm-consumer.yml: dist-ai-tests: helper-scripts: true, so the
+      pre-push-static gate checks out helper-scripts as the repo sibling and
+      shellcheck FOLLOWS the source. See the shellcheck skill.
+    - Complete the R-010 strict block (add 'export LC_ALL=C') on both touched
+      files, required by the current gate.
+
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+commit 758fa856594ff8f5c91fbf3182e186fefa53427c
+Merge: b2c075f e37b2e3
+Author: claude (dev272 e8b76afb-795c-4739-8ebd-023de854021e) <noreply@anthropic.com>
+Date:   Fri Aug 21 03:56:09 2026 -0400
+
+    Merge remote-tracking branch 'org-ai-assisted/master' into ai
+
+commit e37b2e30c78d1f46759de637fd3795d763a1b150
+Author: Patrick Schleizer <adrelanos@whonix.org>
+Date:   Sat Aug 15 16:02:10 2026 +0000
+
+    bumped changelog version
+
+commit b2c075fb92c0f0ca333e610e220e82363ae4c226
+Author: claude (dev182 e09ec5cf-4ebf-4e1b-88e5-55fbac6ef1d3) <noreply@anthropic.com>
+Date:   Mon Aug 10 13:53:59 2026 -0400
+
+    install: connect virt-xml to qemu:///session
+
+    The domain is defined, dumped and guarded via qemu:///session, but the
+    virt-xml --add-device call used the default qemu:///system connection.
+    It therefore targeted a different libvirt instance than the one holding
+    the domain, so the shared filesystem was never attached (or failed).
+
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+commit e7ad64856e429c1fcd68f759aeec69afa2dd0009
+Author: claude (dev172 95595d52-ccfe-4088-99f2-560955a081b5) <noreply@anthropic.com>
+Date:   Sun Aug 9 09:58:47 2026 -0400
+
+    libvirt-dist: move the CI smoke test to the dist-ai suite
+
+    The libvirt XML smoke test now lives in org-ai-assisted/dist-ai
+    (usr/share/libvirt-dist-tests) and runs via the universal consumer wrapper,
+    instead of the in-repo ci_test that also shipped to end-user systems.
+
+    - Add .github/workflows/consumer-dist-ai-tests.yml (byte-identical managed
+      wrapper) + .github/dm-consumer.yml (qemu / libvirt / adduser / safe-rm apt
+      set the suite needs).
+    - Add AGENTS.md (tests pointer) + CLAUDE.md stub.
+    - Remove usr/share/libvirt-dist/ci_test (no longer shipped in the package) and
+      .github/workflows/local-libvirt-xml-test.yml.
+
+    dependabot.yml stays: it is a managed, byte-identical-across-consumers file
+    (pkg_update_consumer_workflows), not a policy violation.
+
+    The dist-ai suite is verified in a debian:trixie-slim container mirroring the
+    reusable's environment: 1 pass, 0 fail.
+
+commit 96dcf9eff24c188a739b8f5a46d9bf3828db5289
+Author: claude (dev172 95595d52-ccfe-4088-99f2-560955a081b5) <noreply@anthropic.com>
+Date:   Sun Aug 9 08:43:45 2026 -0400
+
+    Keep the CI-test workflow TODO as an open item
+
+    Reverts cd5adad. The move (relocate the test to dist-ai, drop dependabot.yml)
+    is not done, so the TODO stays as the open question it was; rewording it as
+    "decided/tracked" implied work that has not happened. Remove the TODO when the
+    move actually lands, not before.
+
+commit cd5adad4c650ee0acbe01c85a34be44f16d20fd8
+Author: claude (dev172 95595d52-ccfe-4088-99f2-560955a081b5) <noreply@anthropic.com>
+Date:   Sun Aug 9 08:40:09 2026 -0400
+
+    libvirt-dist: retarget the CI-test workflow TODO to the dist-ai move
+
+    The workflow TODO asked an open question -- move the test to dist-ai? drop
+    dependabot.yml? The answer is yes and it is tracked, so state the decided
+    direction (relocate the test, drop .github/dependabot.yml which belongs in the
+    org-ai-assisted fork only) instead of the question. Comment-only.
+
+commit 78d1a6ee68a02bfe7368fed348066e870e3c46ae
+Author: claude (dev172 95595d52-ccfe-4088-99f2-560955a081b5) <noreply@anthropic.com>
+Date:   Sun Aug 9 08:33:31 2026 -0400
+
+    libvirt-dist: guard persistent-mode chmod; retarget shellcheck TODO
+
+    persistent-mode-to-read-write: wrap each qcow2 chmod in 'test -f', matching
+    live-mode-to-read-only. The two "deliberately similar" scripts disagreed:
+    live-mode skipped a not-installed image, persistent-mode counted it as a
+    chmod failure (exit 1). A VM the user has not installed is not an error, so
+    persistent-mode now skips a missing image too (resolves the TODO at :56).
+
+    live-mode-to-read-only + persistent-mode-to-read-write: replace the "can we
+    avoid shellcheck in isolation?" TODO with a note pointing at the dist-ai test
+    move -- once these run with the full derivative-maker tree present,
+    'shellcheck -x' follows the source= directive and the SC1091 disable is
+    unneeded. No code change there.
+
+    Testing
+    -------
+
+    Differential mode-script harness (virsh / virt-xml stubbed), sandbox:
+
+      13 same/expected, 0 failing
+
+    The missing-image case is now an explicit assertion: with only Whonix-
+    Workstation present, both VMs are still disk-edited and the absent
+    Whonix-Gateway image no longer forces exit 1 (old: exit 1). All prior cases
+    -- incl. the NameServer substring and virsh-failure-reported assertions --
+    unchanged.
+
+commit 6a2a10f6d56bbd05804425893fd7f3365c3d1dec
+Author: claude (dev172 95595d52-ccfe-4088-99f2-560955a081b5) <noreply@anthropic.com>
+Date:   Sun Aug 9 08:33:14 2026 -0400
+
+    libvirt-dist: install: state-guarded, non-masking virsh + virt-xml setup
+
+    Resolve the install helper's '|| true' masking (the TODO at install:39).
+    errexit is on, so '|| true' was buying reinstall idempotency at the cost of
+    hiding every real failure.
+
+    Networks: define / autostart / start are each guarded by the network's
+    current state (virsh net-list), so a re-run over an already-defined or
+    already-active network is a clean no-op while a genuine virsh error now
+    aborts the postinst. The 'default' network is environment-provided, so it is
+    configured only when present instead of blindly attempted.
+
+    Domains: 'virsh define' redefines an existing domain and returns success, so
+    it is idempotent on its own; dropping '|| true' means malformed XML from the
+    kvm->qemu substitution fails loudly.
+
+    virt-xml --add-device appends UNCONDITIONALLY, so the old '|| true' did not
+    just hide errors -- a reinstall ADDED A DUPLICATE shared-filesystem device.
+    It is now guarded on the domain's current config (virsh dumpxml) and added
+    only when absent.
+
+    Testing
+    -------
+
+    Stub-based differential harness (virsh / virt-xml / getent / str_replace
+    stubbed; /mnt + /var/lib redirected), run in the sandbox:
+
+      8 passing, 0 failing
+
+      fresh install defines + starts + attaches    exit 0, define x2, virt-xml x2
+      reinstall is a clean no-op                    exit 0, 0 / 0 / 0
+      default absent, nets present, fs added        exit 0, virt-xml x2
+      virsh define failure aborts                   exit 1 (old swallowed -> 0)
+      virt-xml failure aborts                       exit 1 (old swallowed -> 0)
+
+    The 'old-differs' checks confirm the old code regressed on exactly these: a
+    reinstall re-defined the nets and re-added the device (0 2 3 2), and a define
+    or virt-xml failure exited 0 having done nothing. Harness to be ported to
+    dist-ai (see the CI-move task).
+
 commit deac5c45722c4b37be3d5788595afb5f541cd2a1
 Merge: 7d00d44 c508ade
 Author: Patrick Schleizer <adrelanos@whonix.org>
