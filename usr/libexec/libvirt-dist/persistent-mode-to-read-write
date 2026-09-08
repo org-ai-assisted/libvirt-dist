@@ -43,8 +43,6 @@ for vm_name_item in ${vm_names_list} ; do
    virt-xml "${vm_name_item}" --edit --disk readonly=off || exit_code="1"
 done
 
-## Guarded by 'test -f' to match live-mode-to-read-only: a not-installed VM
-## image is skipped rather than counted as a chmod failure.
 if test -f "/var/lib/libvirt/images/Whonix-Gateway.qcow2" ; then
    chmod --verbose --recursive ug+w "/var/lib/libvirt/images/Whonix-Gateway.qcow2" || exit_code="1"
 fi
