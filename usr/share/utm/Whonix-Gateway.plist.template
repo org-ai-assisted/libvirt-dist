@@ -62,7 +62,7 @@
 	<dict>
 		<key>AdditionalArguments</key>
 		<array>
-			<string>-device virtio-net-pci,netdev=external -device virtio-net-pci,netdev=internal -netdev user,id=external,ipv6=off,net=10.0.2.0/24 -netdev socket,id=internal,listen=:8010</string>
+			<string>-device virtio-net-pci,netdev=external -device virtio-net-pci,netdev=internal -netdev user,id=external,ipv6=off,net=10.0.2.0/24 -netdev socket,id=internal,listen=127.0.0.1:8010</string>
 		</array>
 		<key>BalloonDevice</key>
 		<false/>
