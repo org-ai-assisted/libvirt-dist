@@ -14,7 +14,7 @@
 			<key>DynamicResolution</key>
 			<true/>
 			<key>Hardware</key>
-			<string>virtio-gpu-gl-pci</string>
+			<string>virtio-gpu-pci</string>
 			<key>NativeResolution</key>
 			<false/>
 			<key>UpscalingFilter</key>
@@ -27,7 +27,7 @@
 			<key>Identifier</key>
 			<string>0</string>
 			<key>ImageName</key>
-			<string>_FLAVOR_.raw</string>
+			<string>_FLAVOR_.qcow2</string>
 			<key>ImageType</key>
 			<string>Disk</string>
 			<key>Interface</key>
