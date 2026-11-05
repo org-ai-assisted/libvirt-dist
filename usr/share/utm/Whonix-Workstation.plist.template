@@ -27,7 +27,7 @@
 			<key>Identifier</key>
 			<string>0</string>
 			<key>ImageName</key>
-			<string>_FLAVOR_.raw</string>
+			<string>_FLAVOR_.qcow2</string>
 			<key>ImageType</key>
 			<string>Disk</string>
 			<key>Interface</key>
