@@ -99,6 +99,13 @@ for domain in "${domains[@]}"; do
   test -f "${temp_dir}/xml/${domain}.xml"
 done
 
+## One shared_dir for every domain is a DELIBERATE operator decision for this
+## Whonix-Host developer preview: a single simple ~/shared, convenience over
+## per-domain isolation. ACCEPTED tradeoff: a compromised Whonix-Gateway can
+## read/modify Whonix-Workstation transfer files via its own mapped mount, so
+## this does NOT provide Gateway-compromise isolation between the guests (the
+## 0700 host perm only keeps OTHER host users out). Splitting into per-domain
+## dirs is the operator's call -- do not "harden" it unprompted.
 for domain in "${domains[@]}"; do
   define_domain "${domain}" "${temp_dir}/xml/${domain}.xml"
   add_shared_filesystem "${domain}" "${shared_dir}"
