@@ -1,0 +1,114 @@
+#!/bin/bash
+
+## Copyright (C) 2019 - 2025 ENCRYPTED SUPPORT LLC <adrelanos@whonix.org>
+## See the file COPYING for copying conditions.
+
+## Per-user libvirt setup, run by libvirt-dist-user-setup.service in the user's
+## own session. Defining the domains via qemu:///session and placing the shared
+## folder in $HOME keeps the VMs, images and transfer folder owned by the
+## desktop user. 9p accessmode=mapped stores guest ownership in host xattrs, so
+## $HOME/shared needs no world or group permissions -- 0700 is sufficient.
+
+## Keep the command trace: it is this script's diagnostic output.
+set -x
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o errtrace
+shopt -s inherit_errexit
+shopt -s shift_verbose
+export LC_ALL=C
+
+state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/libvirt-dist"
+done_marker="${state_dir}/setup.done"
+shared_dir="${HOME}/shared"
+
+## Run from a source checkout as well as the installed tree: empty prefix -> /usr.
+## Safe as an env base here (unlike the root 'install') because this runs as the
+## unprivileged user in their own session -- no privilege boundary to cross.
+xml_source_dir="${LIBVIRT_DIST_REPO:-}/usr/share/libvirt-dist/xml"
+
+virsh_session() {
+  virsh --connect qemu:///session "$@"
+}
+
+## virt-xml --add-device appends unconditionally, so a re-run would add a
+## duplicate shared-filesystem device.
+domain_has_filesystem_source() {
+  virsh_session dumpxml --inactive "${1}" \
+    | grep --fixed-strings 'source' \
+    | grep --fixed-strings "dir='${2}'" >/dev/null 2>&1
+}
+add_shared_filesystem() {
+  local domain source
+  domain="${1}"
+  source="${2}"
+  if ! domain_has_filesystem_source "${domain}" "${source}"; then
+    virt-xml --connect qemu:///session "${domain}" --add-device --filesystem "source=${source},target=shared,type=mount,accessmode=mapped"
+  fi
+}
+
+## The shipped XML carries no fixed <uuid>, so 'virsh define' mints a new one
+## each call and a re-define by name fails. Define only when absent, so a re-run
+## (guard removed, partial prior run) is a clean no-op.
+define_domain() {
+  local domain domain_xml
+  domain="${1}"
+  domain_xml="${2}"
+  if ! virsh_session dominfo "${domain}" >/dev/null 2>&1; then
+    virsh_session define "${domain_xml}"
+  fi
+}
+
+## Shared folder: owner-private in $HOME. qemu:///session runs qemu as this
+## user, so mapped-mode host files are user-owned; no chmod 777, no shared group.
+## 'install -d' sets 0700 atomically and is idempotent on re-run.
+install --directory --mode 0700 -- "${shared_dir}"
+
+## Copy the XML to a temporary directory so an interrupted run leaves the
+## packaged files unmodified.
+temp_dir="$(mktemp --directory)"
+cp --recursive -- "${xml_source_dir}" "${temp_dir}"
+
+if virsh_session capabilities | grep "<domain type='kvm'>" ; then
+  true "OK: found KVM"
+else
+  ## replace the 'kvm' domain type with 'qemu'
+  search="<domain type='kvm'>"
+  replace="<domain type='qemu'>"
+  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
+  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
+
+  search="<cpu mode='host-passthrough'/>"
+  replace=""
+  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
+  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
+
+  ## https://forums.whonix.org/t/whonix-host-operating-system/3931/251
+  search="<pvspinlock state='on'/>"
+  replace=""
+  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
+  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
+
+  ## https://forums.whonix.org/t/whonix-host-operating-system/3931/284
+  search="<vcpu placement='static' cpuset='0'>1</vcpu>"
+  replace=""
+  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
+
+  ## https://forums.whonix.org/t/whonix-host-operating-system/3931/284
+  search="<vcpu placement='static' cpuset='1'>1</vcpu>"
+  replace=""
+  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
+fi
+
+test -f "${temp_dir}/xml/Whonix-Gateway.xml"
+test -f "${temp_dir}/xml/Whonix-Workstation.xml"
+
+define_domain "Whonix-Gateway" "${temp_dir}/xml/Whonix-Gateway.xml"
+define_domain "Whonix-Workstation" "${temp_dir}/xml/Whonix-Workstation.xml"
+
+add_shared_filesystem "Whonix-Gateway" "${shared_dir}"
+add_shared_filesystem "Whonix-Workstation" "${shared_dir}"
+
+mkdir --parents -- "${state_dir}"
+touch -- "${done_marker}"

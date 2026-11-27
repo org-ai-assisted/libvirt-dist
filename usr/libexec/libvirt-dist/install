@@ -11,6 +11,12 @@ set -o pipefail
 set -o errtrace
 shopt -s inherit_errexit
 shopt -s shift_verbose
+export LC_ALL=C
+
+## System-level setup only (runs as root). The libvirt domains and the shared
+## folder are set up per user in the user's own qemu:///session by
+## libvirt-dist-user-setup.service, so the VMs, images and $HOME/shared belong
+## to the desktop user, not root.
 
 ## {{ Taken from qemu-system-common.postinst.
 # Add the kvm group unless it's already there
@@ -29,77 +35,6 @@ fi
 ## XXX: Or is it?
 adduser user kvm >/dev/null || true
 adduser user libvirt >/dev/null || true
-
-## Create shared directory and adjust permissions
-mkdir --parents /mnt/gateway-shared
-mkdir --parents /mnt/workstation-shared
-chmod 777 /mnt/gateway-shared
-chmod 777 /mnt/workstation-shared
-
-virsh_session() {
-   virsh -c qemu:///session "$@"
-}
-
-## Doing the following in a temporary directory to avoid modified files should
-## this be interrupted in the middle.
-temp_dir="$(mktemp --directory)"
-cp -r /usr/share/libvirt-dist/xml "${temp_dir}"
-
-if virsh capabilities | grep "<domain type='kvm'>" ; then
-   true "OK: found KVM"
-else
-   ## replace the 'kvm' domain type with 'qemu'
-   search="<domain type='kvm'>"
-   replace="<domain type='qemu'>"
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
-
-   search="<cpu mode='host-passthrough'/>"
-   replace=""
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
-
-   ## https://forums.whonix.org/t/whonix-host-operating-system/3931/251
-   search="<pvspinlock state='on'/>"
-   replace=""
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
-
-   ## https://forums.whonix.org/t/whonix-host-operating-system/3931/284
-   search="<vcpu placement='static' cpuset='0'>1</vcpu>"
-   replace=""
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
-
-   ## https://forums.whonix.org/t/whonix-host-operating-system/3931/284
-   search="<vcpu placement='static' cpuset='1'>1</vcpu>"
-   replace=""
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
-fi
-
-test -f "${temp_dir}/xml/Whonix-Gateway.xml"
-test -f "${temp_dir}/xml/Whonix-Workstation.xml"
-
-virsh_session define "${temp_dir}/xml/Whonix-Gateway.xml"
-virsh_session define "${temp_dir}/xml/Whonix-Workstation.xml"
-
-## virt-xml --add-device appends unconditionally, so a reinstall would add a
-## duplicate shared-filesystem device.
-domain_has_filesystem_source() {
-   virsh_session dumpxml --inactive "${1}" \
-      | grep --fixed-strings 'source' \
-      | grep --fixed-strings "dir='${2}'" >/dev/null 2>&1
-}
-add_shared_filesystem() {
-   local domain source
-   domain="${1}"
-   source="${2}"
-   if ! domain_has_filesystem_source "${domain}" "${source}"; then
-      virt-xml --connect qemu:///session "${domain}" --add-device --filesystem "source=${source},target=shared,type=mount,accessmode=mapped"
-   fi
-}
-
-add_shared_filesystem "Whonix-Gateway" "/mnt/gateway-shared"
-add_shared_filesystem "Whonix-Workstation" "/mnt/workstation-shared"
 
 mkdir --parents /var/lib/libvirt-dist
 touch /var/lib/libvirt-dist/install.done
