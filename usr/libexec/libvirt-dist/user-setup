@@ -40,6 +40,15 @@ domain_has_filesystem_source() {
     | grep --fixed-strings 'source' \
     | grep --fixed-strings "dir='${2}'" >/dev/null 2>&1
 }
+## 9p (accessmode=mapped) is the DEFAULT and only auto-attached transport: it is
+## verified end to end, including guest-side group access for both 'user' and
+## 'sysmaint' (vm-config-dist mount-shared re-applies the kvmsf group on the
+## mounted root; mapped-mode xattrs decouple the guest perms from this 0700 host
+## dir). virtiofs is an OPT-IN: the guest's mount-shared tries virtiofs FIRST and
+## only falls back to 9p, so it engages automatically when a virtiofs device is
+## attached instead. Not force-attached here -- virtiofs multi-account (group)
+## access needs its own posix-acl verification (libvirt >= 10 session-mode idmap
+## + shared-memory backing) before it can replace the verified 9p default.
 add_shared_filesystem() {
   local domain source
   domain="${1}"
