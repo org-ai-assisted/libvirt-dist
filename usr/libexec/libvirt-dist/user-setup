@@ -22,6 +22,7 @@ export LC_ALL=C
 state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/libvirt-dist"
 done_marker="${state_dir}/setup.done"
 shared_dir="${HOME}/shared"
+domains=(Whonix-Gateway Whonix-Workstation Kicksecure)
 
 ## Run from a source checkout as well as the installed tree: empty prefix -> /usr.
 ## Safe as an env base here (unlike the root 'install') because this runs as the
@@ -60,6 +61,22 @@ define_domain() {
   fi
 }
 
+## Host without KVM (CI / nested virt): libvirt refuses domain type 'kvm'.
+## define/undefine never starts the VM, so the 'qemu' type validates identically.
+## str_replace is a no-op when a string is absent, so one routine covers every
+## domain regardless of which of these elements it carries.
+rewrite_kvm_to_qemu() {
+  local xml
+  xml="${1}"
+  str_replace "<domain type='kvm'>" "<domain type='qemu'>" "${xml}"
+  str_replace "<cpu mode='host-passthrough'/>" "" "${xml}"
+  ## https://forums.whonix.org/t/whonix-host-operating-system/3931/251
+  str_replace "<pvspinlock state='on'/>" "" "${xml}"
+  ## https://forums.whonix.org/t/whonix-host-operating-system/3931/284
+  str_replace "<vcpu placement='static' cpuset='0'>1</vcpu>" "" "${xml}"
+  str_replace "<vcpu placement='static' cpuset='1'>1</vcpu>" "" "${xml}"
+}
+
 ## Shared folder: owner-private in $HOME. qemu:///session runs qemu as this
 ## user, so mapped-mode host files are user-owned; no chmod 777, no shared group.
 ## 'install -d' sets 0700 atomically and is idempotent on re-run.
@@ -73,42 +90,19 @@ cp --recursive -- "${xml_source_dir}" "${temp_dir}"
 if virsh_session capabilities | grep "<domain type='kvm'>" ; then
   true "OK: found KVM"
 else
-  ## replace the 'kvm' domain type with 'qemu'
-  search="<domain type='kvm'>"
-  replace="<domain type='qemu'>"
-  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
-  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
-
-  search="<cpu mode='host-passthrough'/>"
-  replace=""
-  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
-  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
-
-  ## https://forums.whonix.org/t/whonix-host-operating-system/3931/251
-  search="<pvspinlock state='on'/>"
-  replace=""
-  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
-  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
-
-  ## https://forums.whonix.org/t/whonix-host-operating-system/3931/284
-  search="<vcpu placement='static' cpuset='0'>1</vcpu>"
-  replace=""
-  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
-
-  ## https://forums.whonix.org/t/whonix-host-operating-system/3931/284
-  search="<vcpu placement='static' cpuset='1'>1</vcpu>"
-  replace=""
-  str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
+  for domain in "${domains[@]}"; do
+    rewrite_kvm_to_qemu "${temp_dir}/xml/${domain}.xml"
+  done
 fi
 
-test -f "${temp_dir}/xml/Whonix-Gateway.xml"
-test -f "${temp_dir}/xml/Whonix-Workstation.xml"
+for domain in "${domains[@]}"; do
+  test -f "${temp_dir}/xml/${domain}.xml"
+done
 
-define_domain "Whonix-Gateway" "${temp_dir}/xml/Whonix-Gateway.xml"
-define_domain "Whonix-Workstation" "${temp_dir}/xml/Whonix-Workstation.xml"
-
-add_shared_filesystem "Whonix-Gateway" "${shared_dir}"
-add_shared_filesystem "Whonix-Workstation" "${shared_dir}"
+for domain in "${domains[@]}"; do
+  define_domain "${domain}" "${temp_dir}/xml/${domain}.xml"
+  add_shared_filesystem "${domain}" "${shared_dir}"
+done
 
 mkdir --parents -- "${state_dir}"
 touch -- "${done_marker}"
