@@ -4,10 +4,12 @@
 ## See the file COPYING for copying conditions.
 
 ## Per-user libvirt setup, run by libvirt-dist-user-setup.service in the user's
-## own session. Defining the domains via qemu:///session and placing the shared
-## folder in $HOME keeps the VMs, images and transfer folder owned by the
-## desktop user. 9p accessmode=mapped stores guest ownership in host xattrs, so
-## $HOME/shared needs no world or group permissions -- 0700 is sufficient.
+## own session. Defining the domains via qemu:///session keeps the VMs and images
+## owned by the desktop user (qemu runs as that user). The shared folder and its
+## kvmsf group are created by the root libvirt-dist install so both "user" and
+## "sysmaint" reach a system path (a $HOME dir could not be cross-account
+## traversable); here we only attach it. 9p accessmode=mapped decouples the
+## guest's own perms from the host dir.
 
 ## Keep the command trace: it is this script's diagnostic output.
 set -x
@@ -21,7 +23,7 @@ export LC_ALL=C
 
 state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/libvirt-dist"
 done_marker="${state_dir}/setup.done"
-shared_dir="${HOME}/shared"
+shared_dir="${LIBVIRT_DIST_SHARED_DIR:-/mnt/shared}"
 domains=(Whonix-Gateway Whonix-Workstation Kicksecure)
 
 ## Run from a source checkout as well as the installed tree: empty prefix -> /usr.
@@ -43,7 +45,7 @@ domain_has_filesystem_source() {
 ## 9p (accessmode=mapped) is the DEFAULT and only auto-attached transport: it is
 ## verified end to end, including guest-side group access for both 'user' and
 ## 'sysmaint' (vm-config-dist mount-shared re-applies the kvmsf group on the
-## mounted root; mapped-mode xattrs decouple the guest perms from this 0700 host
+## mounted root; mapped-mode xattrs decouple the guest perms from the host
 ## dir). virtiofs is an OPT-IN: the guest's mount-shared tries virtiofs FIRST and
 ## only falls back to 9p, so it engages automatically when a virtiofs device is
 ## attached instead. Not force-attached here -- virtiofs multi-account (group)
@@ -86,10 +88,14 @@ rewrite_kvm_to_qemu() {
   str_replace "<vcpu placement='static' cpuset='1'>1</vcpu>" "" "${xml}"
 }
 
-## Shared folder: owner-private in $HOME. qemu:///session runs qemu as this
-## user, so mapped-mode host files are user-owned; no chmod 777, no shared group.
-## 'install -d' sets 0700 atomically and is idempotent on re-run.
-install --directory --mode 0700 -- "${shared_dir}"
+## The shared folder + its kvmsf group are created by the root libvirt-dist
+## install (a /mnt system path, 3770 user:kvmsf -- both "user" and "sysmaint"
+## reach it; a $HOME dir could not). Fail loud if absent rather than attaching a
+## dangling source.
+if [ ! -d "${shared_dir}" ]; then
+  printf '%s\n' "ERROR: shared folder ${shared_dir} is missing; run the root libvirt-dist install (libvirt-dist-install.service) first." >&2
+  exit 1
+fi
 
 ## Copy the XML to a temporary directory so an interrupted run leaves the
 ## packaged files unmodified.
@@ -109,12 +115,12 @@ for domain in "${domains[@]}"; do
 done
 
 ## One shared_dir for every domain is a DELIBERATE operator decision for this
-## Whonix-Host developer preview: a single simple ~/shared, convenience over
+## Whonix-Host developer preview: a single simple /mnt/shared, convenience over
 ## per-domain isolation. ACCEPTED tradeoff: a compromised Whonix-Gateway can
 ## read/modify Whonix-Workstation transfer files via its own mapped mount, so
 ## this does NOT provide Gateway-compromise isolation between the guests (the
-## 0700 host perm only keeps OTHER host users out). Splitting into per-domain
-## dirs is the operator's call -- do not "harden" it unprompted.
+## 3770 kvmsf host perm only keeps non-member host accounts out). Splitting into
+## per-domain dirs is the operator's call -- do not "harden" it unprompted.
 for domain in "${domains[@]}"; do
   define_domain "${domain}" "${temp_dir}/xml/${domain}.xml"
   add_shared_filesystem "${domain}" "${shared_dir}"
