@@ -38,11 +38,18 @@ adduser user libvirt >/dev/null || true
 
 ## Shared folder: group-scoped so both "user" and "sysmaint" reach it. A single
 ## $HOME dir cannot be cross-account traversable, so the share is a system path
-## owned root:kvmsf mode 3770 (setgid + sticky, NO world -- secure, not chmod
-## 777). root (NOT a member) owns it so the sticky bit protects BOTH members
-## from each other (sticky exempts the dir owner) and neither can chmod it open.
-## qemu:///session runs qemu as "user", which reaches the share via the kvmsf
-## group; "sysmaint" likewise. setgid: new entries inherit the group.
+## /mnt/shared, group kvmsf, mode 3770 (setgid + sticky, NO world -- secure, not
+## chmod 777). Owned by "user" (the qemu:///session user), NOT root: under 9p
+## accessmode=mapped QEMU runs as "user" and records the guest's ownership/mode
+## as user.virtfs.* xattrs on this dir. The kernel forbids a NON-owner from
+## setting user.* xattrs on a STICKY dir, so a root-owned /mnt/shared makes the
+## guest-side 'chmod 3770' fixup fail EPERM and the share loses group access --
+## the export MUST be owned by the qemu user. "sysmaint" reaches it via the kvmsf
+## group; setgid: new entries inherit the group.
+## INHERENT mapped-session limit (documented, not a bug to "fix" by root-owning,
+## which breaks the mechanism): since "user" owns the export, "user" can unlink
+## "sysmaint"'s HOST files here or chmod this dir -- the GUEST-side view is
+## protected by the 3770 sticky stored in the mapped xattrs.
 ## accessmode=mapped keeps the guest's own perms decoupled from these host
 ## perms. Path overridable for tests.
 ## SUID residual (dev-preview, accepted): the GUEST mounts carry
@@ -59,5 +66,12 @@ if getent passwd sysmaint >/dev/null; then
    adduser sysmaint kvmsf >/dev/null || true
 fi
 mkdir --parents -- "${shared_dir}"
-chown root:kvmsf -- "${shared_dir}"
+## user-owned so qemu:///session (running as "user") can write the mapped
+## user.virtfs.* xattrs on this sticky dir; root-owned would EPERM. Fall back to
+## root only when "user" is absent (no session qemu to serve anyway).
+if getent passwd user >/dev/null; then
+   chown user:kvmsf -- "${shared_dir}"
+else
+   chown root:kvmsf -- "${shared_dir}"
+fi
 chmod 3770 -- "${shared_dir}"

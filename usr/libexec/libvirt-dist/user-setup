@@ -57,14 +57,15 @@ add_shared_filesystem() {
   local domain source
   domain="${1}"
   source="${2}"
-  ## fmode/dmode CAP the HOST backing mode for guest-created inodes under mapped
-  ## (QEMU's default is 0600/0700 -- host "sysmaint" could not even read what the
-  ## guest wrote). The host inode is the guest mode AND fmode, so a guest file
-  ## (umask 0644) becomes 0640: every kvmsf member can READ what the guest wrote.
-  ## Group-WRITE is not reached (same guest-umask limit as the 9p mounted root);
-  ## guest-VISIBLE perms are unchanged.
+  ## fmode/dmode set the HOST backing mode for guest-created inodes under mapped.
+  ## QEMU uses them as the creation mode DIRECTLY (not ANDed with the guest's own
+  ## mode), subject to qemu's umask, so every guest-created host inode is 0640 /
+  ## 0750 regardless of what the guest set: host "sysmaint" (kvmsf) can READ guest
+  ## files and TRAVERSE guest dirs. QEMU's 0600/0700 default would block even
+  ## that. Group-WRITE is withheld deliberately (0640 not 0660) -- read access is
+  ## the requirement. Guest-VISIBLE perms are unchanged (the guest's own mode).
   if ! domain_has_shared_filesystem "${domain}"; then
-    virt-xml --connect qemu:///session "${domain}" --add-device --filesystem "source=${source},target=shared,type=mount,accessmode=mapped,fmode=0660,dmode=0770"
+    virt-xml --connect qemu:///session "${domain}" --add-device --filesystem "source=${source},target=shared,type=mount,accessmode=mapped,fmode=0640,dmode=0750"
   fi
 }
 
