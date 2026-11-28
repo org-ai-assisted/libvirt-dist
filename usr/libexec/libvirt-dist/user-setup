@@ -35,12 +35,14 @@ virsh_session() {
   virsh --connect qemu:///session "$@"
 }
 
-## virt-xml --add-device appends unconditionally, so a re-run would add a
-## duplicate shared-filesystem device.
-domain_has_filesystem_source() {
+## virt-xml --add-device appends unconditionally. Key the idempotency guard on
+## the <target dir='shared'/> MOUNT TAG, which libvirt requires unique per
+## domain -- NOT the source path. Keying on the source would miss an existing
+## device whose source differs (e.g. an older path) and append a second
+## target='shared' device, which makes the domain fail to start.
+domain_has_shared_filesystem() {
   virsh_session dumpxml --inactive "${1}" \
-    | grep --fixed-strings 'source' \
-    | grep --fixed-strings "dir='${2}'" >/dev/null 2>&1
+    | grep --fixed-strings "target dir='shared'" >/dev/null 2>&1
 }
 ## 9p (accessmode=mapped) is the DEFAULT and only auto-attached transport: it is
 ## verified end to end, including guest-side group access for both 'user' and
@@ -55,8 +57,14 @@ add_shared_filesystem() {
   local domain source
   domain="${1}"
   source="${2}"
-  if ! domain_has_filesystem_source "${domain}" "${source}"; then
-    virt-xml --connect qemu:///session "${domain}" --add-device --filesystem "source=${source},target=shared,type=mount,accessmode=mapped"
+  ## fmode/dmode CAP the HOST backing mode for guest-created inodes under mapped
+  ## (QEMU's default is 0600/0700 -- host "sysmaint" could not even read what the
+  ## guest wrote). The host inode is the guest mode AND fmode, so a guest file
+  ## (umask 0644) becomes 0640: every kvmsf member can READ what the guest wrote.
+  ## Group-WRITE is not reached (same guest-umask limit as the 9p mounted root);
+  ## guest-VISIBLE perms are unchanged.
+  if ! domain_has_shared_filesystem "${domain}"; then
+    virt-xml --connect qemu:///session "${domain}" --add-device --filesystem "source=${source},target=shared,type=mount,accessmode=mapped,fmode=0660,dmode=0770"
   fi
 }
 

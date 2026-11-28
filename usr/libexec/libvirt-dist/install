@@ -38,12 +38,13 @@ adduser user libvirt >/dev/null || true
 
 ## Shared folder: group-scoped so both "user" and "sysmaint" reach it. A single
 ## $HOME dir cannot be cross-account traversable, so the share is a system path
-## owned user:kvmsf mode 3770 (setgid + sticky, NO world -- secure, not chmod
-## 777). qemu:///session runs qemu as "user" (the owner), so it always reaches
-## the share; "sysmaint" reaches it via the kvmsf group. setgid: new entries
-## inherit the group. sticky: neither member can unlink/replace the other's
-## files. accessmode=mapped keeps the guest's own perms decoupled from these
-## host perms. Path overridable for tests.
+## owned root:kvmsf mode 3770 (setgid + sticky, NO world -- secure, not chmod
+## 777). root (NOT a member) owns it so the sticky bit protects BOTH members
+## from each other (sticky exempts the dir owner) and neither can chmod it open.
+## qemu:///session runs qemu as "user", which reaches the share via the kvmsf
+## group; "sysmaint" likewise. setgid: new entries inherit the group.
+## accessmode=mapped keeps the guest's own perms decoupled from these host
+## perms. Path overridable for tests.
 ## SUID residual (dev-preview, accepted): the GUEST mounts carry
 ## nosuid,nodev,noexec (vm-config-dist mount-shared), but this host dir is a
 ## plain directory, not a mount, so it cannot. A setuid file placed here by one
@@ -58,12 +59,5 @@ if getent passwd sysmaint >/dev/null; then
    adduser sysmaint kvmsf >/dev/null || true
 fi
 mkdir --parents -- "${shared_dir}"
-if getent passwd user >/dev/null; then
-   chown user:kvmsf -- "${shared_dir}"
-else
-   chown root:kvmsf -- "${shared_dir}"
-fi
+chown root:kvmsf -- "${shared_dir}"
 chmod 3770 -- "${shared_dir}"
-
-mkdir --parents /var/lib/libvirt-dist
-touch /var/lib/libvirt-dist/install.done

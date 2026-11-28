@@ -5,10 +5,9 @@
 Description=Whonix initial libvirt settings
 Documentation=https://github.com/Whonix/libvirt-dist
 
-## legacy
-ConditionPathExists=!/var/lib/whonix-libvirt/install.done
-## new
-ConditionPathExists=!/var/lib/libvirt-dist/install.done
+## No run-once guard: ExecStart is idempotent and re-asserts the kvm/libvirt/
+## kvmsf group membership and the /mnt/shared owner+perms every boot, so an
+## account added after first boot gets access and any perm drift self-heals.
 
 After=libvirtd.service
 After=libvirt-guests.service
