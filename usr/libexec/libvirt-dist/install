@@ -38,18 +38,24 @@ adduser user libvirt >/dev/null || true
 
 ## Shared folder: group-scoped so both "user" and "sysmaint" reach it. A single
 ## $HOME dir cannot be cross-account traversable, so the share is a system path
-## /mnt/shared, group kvmsf, mode 3770 (setgid + sticky, NO world -- secure, not
-## chmod 777). Owned by "user" (the qemu:///session user), NOT root: under 9p
-## accessmode=mapped QEMU runs as "user" and records the guest's ownership/mode
-## as user.virtfs.* xattrs on this dir. The kernel forbids a NON-owner from
-## setting user.* xattrs on a STICKY dir, so a root-owned /mnt/shared makes the
-## guest-side 'chmod 3770' fixup fail EPERM and the share loses group access --
-## the export MUST be owned by the qemu user. "sysmaint" reaches it via the kvmsf
-## group; setgid: new entries inherit the group.
-## INHERENT mapped-session limit (documented, not a bug to "fix" by root-owning,
-## which breaks the mechanism): since "user" owns the export, "user" can unlink
-## "sysmaint"'s HOST files here or chmod this dir -- the GUEST-side view is
-## protected by the 3770 sticky stored in the mapped xattrs.
+## /mnt/shared, root:kvmsf, mode 2770 (setgid + group rwx, NO world, NO sticky --
+## secure, not chmod 777). "sysmaint" and the qemu:///session "user" reach it via
+## the kvmsf group; setgid: new entries inherit the group.
+## Why these exact bits (the full owner/sticky matrix, so it is not re-litigated):
+##  - accessmode=mapped runs QEMU as "user" and stores the guest's ownership/mode
+##    as user.virtfs.* xattrs on this dir. The kernel (xattr_permission) blocks a
+##    NON-owner from setting user.* xattrs ONLY on a STICKY dir -- so the dir must
+##    be NON-sticky, else the guest-side 'chmod 3770' fixup fails EPERM and the
+##    share loses group access. A kvmsf member with group-write on a non-sticky
+##    dir CAN set them (verified empirically).
+##  - root ownership (NOT "user") stops a member from chmod-ing the host dir open
+##    to every local uid, or chgrp-ing it away.
+##  => root:kvmsf 2770 is the ONLY mode satisfying both; verified on a real boot.
+## INHERENT residual (unavoidable, documented): without the sticky bit a kvmsf
+## member can unlink/replace ANOTHER member's HOST file here. The sticky bit would
+## fix that but breaks the mapped xattr write above -- mutually exclusive. The
+## GUEST-side view still gets full sticky protection: mount-shared stores mode
+## 3770 in the mapped xattrs, which the guest kernel enforces.
 ## accessmode=mapped keeps the guest's own perms decoupled from these host
 ## perms. Path overridable for tests.
 ## SUID residual (dev-preview, accepted): the GUEST mounts carry
@@ -66,12 +72,8 @@ if getent passwd sysmaint >/dev/null; then
    adduser sysmaint kvmsf >/dev/null || true
 fi
 mkdir --parents -- "${shared_dir}"
-## user-owned so qemu:///session (running as "user") can write the mapped
-## user.virtfs.* xattrs on this sticky dir; root-owned would EPERM. Fall back to
-## root only when "user" is absent (no session qemu to serve anyway).
-if getent passwd user >/dev/null; then
-   chown user:kvmsf -- "${shared_dir}"
-else
-   chown root:kvmsf -- "${shared_dir}"
-fi
-chmod 3770 -- "${shared_dir}"
+## root:kvmsf 2770 -- see the header: non-sticky so qemu-as-"user" (a kvmsf
+## member) can write the mapped user.virtfs.* xattrs, root-owned so no member can
+## chmod the host dir open.
+chown root:kvmsf -- "${shared_dir}"
+chmod 2770 -- "${shared_dir}"

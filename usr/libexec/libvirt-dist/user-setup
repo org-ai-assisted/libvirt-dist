@@ -98,7 +98,7 @@ rewrite_kvm_to_qemu() {
 }
 
 ## The shared folder + its kvmsf group are created by the root libvirt-dist
-## install (a /mnt system path, 3770 user:kvmsf -- both "user" and "sysmaint"
+## install (a /mnt system path, root:kvmsf 2770 -- both "user" and "sysmaint"
 ## reach it; a $HOME dir could not). Fail loud if absent rather than attaching a
 ## dangling source.
 if [ ! -d "${shared_dir}" ]; then
@@ -128,7 +128,7 @@ done
 ## per-domain isolation. ACCEPTED tradeoff: a compromised Whonix-Gateway can
 ## read/modify Whonix-Workstation transfer files via its own mapped mount, so
 ## this does NOT provide Gateway-compromise isolation between the guests (the
-## 3770 kvmsf host perm only keeps non-member host accounts out). Splitting into
+## 2770 kvmsf host perm only keeps non-member host accounts out). Splitting into
 ## per-domain dirs is the operator's call -- do not "harden" it unprompted.
 for domain in "${domains[@]}"; do
   define_domain "${domain}" "${temp_dir}/xml/${domain}.xml"
