@@ -58,11 +58,13 @@ adduser user libvirt >/dev/null || true
 ## 3770 in the mapped xattrs, which the guest kernel enforces.
 ## accessmode=mapped keeps the guest's own perms decoupled from these host
 ## perms. Path overridable for tests.
-## SUID residual (dev-preview, accepted): the GUEST mounts carry
-## nosuid,nodev,noexec (vm-config-dist mount-shared), but this host dir is a
-## plain directory, not a mount, so it cannot. A setuid file placed here by one
-## host account and run by another escalates; closing it needs a nosuid,nodev
-## self-bind-mount unit. Not shipped -- user+sysmaint are the operator's own.
+## SUID/exec of this host dir: handled by security-misc remount-secure, not a
+## bespoke unit here. remount-secure rbinds /mnt onto itself at boot with
+## nosuid,nodev (level >= 1) plus noexec (default level 3), so this subdir
+## inherits them -- a setuid/exec file dropped here by one host account cannot
+## escalate when another runs it. Reopened only by remount_secure_level=0 or the
+## noremountsecure cmdline off-switch; the Kicksecure/Whonix host base defaults
+## to level 3. (Cross-member UNLINK above is separate and remains.)
 shared_dir="${LIBVIRT_DIST_SHARED_DIR:-/mnt/shared}"
 if ! getent group kvmsf >/dev/null; then
    addgroup --system kvmsf
