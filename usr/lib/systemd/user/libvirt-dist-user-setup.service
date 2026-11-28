@@ -1,0 +1,18 @@
+## Copyright (C) 2020 - 2025 ENCRYPTED SUPPORT LLC <adrelanos@whonix.org>
+## See the file COPYING for copying conditions.
+
+[Unit]
+Description=Whonix per-user libvirt domain and shared folder setup
+Documentation=https://www.kicksecure.com/wiki/KVM
+
+## Only the desktop user; never a display-manager or root user manager.
+ConditionUser=user
+ConditionPathExists=!%S/libvirt-dist/setup.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/libvirt-dist/user-setup
+RemainAfterExit=true
+
+[Install]
+WantedBy=default.target

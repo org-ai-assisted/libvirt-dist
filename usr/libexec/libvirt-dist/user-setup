@@ -1,0 +1,139 @@
+#!/bin/bash
+
+## Copyright (C) 2019 - 2025 ENCRYPTED SUPPORT LLC <adrelanos@whonix.org>
+## See the file COPYING for copying conditions.
+
+## Per-user libvirt setup, run by libvirt-dist-user-setup.service in the user's
+## own session. Defining the domains via qemu:///session keeps the VMs and images
+## owned by the desktop user (qemu runs as that user). The shared folder and its
+## kvmsf group are created by the root libvirt-dist install so both "user" and
+## "sysmaint" reach a system path (a $HOME dir could not be cross-account
+## traversable); here we only attach it. 9p accessmode=mapped decouples the
+## guest's own perms from the host dir.
+
+## Keep the command trace: it is this script's diagnostic output.
+set -x
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o errtrace
+shopt -s inherit_errexit
+shopt -s shift_verbose
+export LC_ALL=C
+
+state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/libvirt-dist"
+done_marker="${state_dir}/setup.done"
+shared_dir="${LIBVIRT_DIST_SHARED_DIR:-/mnt/shared}"
+domains=(Whonix-Gateway Whonix-Workstation Kicksecure)
+
+## Run from a source checkout as well as the installed tree: empty prefix -> /usr.
+## Safe as an env base here (unlike the root 'install') because this runs as the
+## unprivileged user in their own session -- no privilege boundary to cross.
+xml_source_dir="${LIBVIRT_DIST_REPO:-}/usr/share/libvirt-dist/xml"
+
+virsh_session() {
+  virsh --connect qemu:///session "$@"
+}
+
+## virt-xml --add-device appends unconditionally. Key the idempotency guard on
+## the <target dir='shared'/> MOUNT TAG, which libvirt requires unique per
+## domain -- NOT the source path. Keying on the source would miss an existing
+## device whose source differs (e.g. an older path) and append a second
+## target='shared' device, which makes the domain fail to start.
+domain_has_shared_filesystem() {
+  virsh_session dumpxml --inactive "${1}" \
+    | grep --fixed-strings "target dir='shared'" >/dev/null 2>&1
+}
+## 9p (accessmode=mapped) is the DEFAULT and only auto-attached transport: it is
+## verified end to end, including guest-side group access for both 'user' and
+## 'sysmaint' (vm-config-dist mount-shared re-applies the kvmsf group on the
+## mounted root; mapped-mode xattrs decouple the guest perms from the host
+## dir). virtiofs is an OPT-IN: the guest's mount-shared tries virtiofs FIRST and
+## only falls back to 9p, so it engages automatically when a virtiofs device is
+## attached instead. Not force-attached here -- virtiofs multi-account (group)
+## access needs its own posix-acl verification (libvirt >= 10 session-mode idmap
+## + shared-memory backing) before it can replace the verified 9p default.
+add_shared_filesystem() {
+  local domain source
+  domain="${1}"
+  source="${2}"
+  ## fmode/dmode set the HOST backing mode for guest-created inodes under mapped.
+  ## QEMU uses them as the creation mode DIRECTLY (not ANDed with the guest's own
+  ## mode), subject to qemu's umask, so every guest-created host inode is 0640 /
+  ## 0750 regardless of what the guest set: host "sysmaint" (kvmsf) can READ guest
+  ## files and TRAVERSE guest dirs. QEMU's 0600/0700 default would block even
+  ## that. Group-WRITE is withheld deliberately (0640 not 0660) -- read access is
+  ## the requirement. Guest-VISIBLE perms are unchanged (the guest's own mode).
+  if ! domain_has_shared_filesystem "${domain}"; then
+    virt-xml --connect qemu:///session "${domain}" --add-device --filesystem "source=${source},target=shared,type=mount,accessmode=mapped,fmode=0640,dmode=0750"
+  fi
+}
+
+## The shipped XML carries no fixed <uuid>, so 'virsh define' mints a new one
+## each call and a re-define by name fails. Define only when absent, so a re-run
+## (guard removed, partial prior run) is a clean no-op.
+define_domain() {
+  local domain domain_xml
+  domain="${1}"
+  domain_xml="${2}"
+  if ! virsh_session dominfo "${domain}" >/dev/null 2>&1; then
+    virsh_session define "${domain_xml}"
+  fi
+}
+
+## Host without KVM (CI / nested virt): libvirt refuses domain type 'kvm'.
+## define/undefine never starts the VM, so the 'qemu' type validates identically.
+## str_replace is a no-op when a string is absent, so one routine covers every
+## domain regardless of which of these elements it carries.
+rewrite_kvm_to_qemu() {
+  local xml
+  xml="${1}"
+  str_replace "<domain type='kvm'>" "<domain type='qemu'>" "${xml}"
+  str_replace "<cpu mode='host-passthrough'/>" "" "${xml}"
+  ## https://forums.whonix.org/t/whonix-host-operating-system/3931/251
+  str_replace "<pvspinlock state='on'/>" "" "${xml}"
+  ## https://forums.whonix.org/t/whonix-host-operating-system/3931/284
+  str_replace "<vcpu placement='static' cpuset='0'>1</vcpu>" "" "${xml}"
+  str_replace "<vcpu placement='static' cpuset='1'>1</vcpu>" "" "${xml}"
+}
+
+## The shared folder + its kvmsf group are created by the root libvirt-dist
+## install (a /mnt system path, root:kvmsf 2770 -- both "user" and "sysmaint"
+## reach it; a $HOME dir could not). Fail loud if absent rather than attaching a
+## dangling source.
+if [ ! -d "${shared_dir}" ]; then
+  printf '%s\n' "ERROR: shared folder ${shared_dir} is missing; run the root libvirt-dist install (libvirt-dist-install.service) first." >&2
+  exit 1
+fi
+
+## Copy the XML to a temporary directory so an interrupted run leaves the
+## packaged files unmodified.
+temp_dir="$(mktemp --directory)"
+cp --recursive -- "${xml_source_dir}" "${temp_dir}"
+
+if virsh_session capabilities | grep "<domain type='kvm'>" ; then
+  true "OK: found KVM"
+else
+  for domain in "${domains[@]}"; do
+    rewrite_kvm_to_qemu "${temp_dir}/xml/${domain}.xml"
+  done
+fi
+
+for domain in "${domains[@]}"; do
+  test -f "${temp_dir}/xml/${domain}.xml"
+done
+
+## One shared_dir for every domain is a DELIBERATE operator decision for this
+## Whonix-Host developer preview: a single simple /mnt/shared, convenience over
+## per-domain isolation. ACCEPTED tradeoff: a compromised Whonix-Gateway can
+## read/modify Whonix-Workstation transfer files via its own mapped mount, so
+## this does NOT provide Gateway-compromise isolation between the guests (the
+## 2770 kvmsf host perm only keeps non-member host accounts out). Splitting into
+## per-domain dirs is the operator's call -- do not "harden" it unprompted.
+for domain in "${domains[@]}"; do
+  define_domain "${domain}" "${temp_dir}/xml/${domain}.xml"
+  add_shared_filesystem "${domain}" "${shared_dir}"
+done
+
+mkdir --parents -- "${state_dir}"
+touch -- "${done_marker}"

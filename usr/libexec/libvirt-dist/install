@@ -11,6 +11,12 @@ set -o pipefail
 set -o errtrace
 shopt -s inherit_errexit
 shopt -s shift_verbose
+export LC_ALL=C
+
+## System-level setup only (runs as root). The libvirt domains and the shared
+## folder are set up per user in the user's own qemu:///session by
+## libvirt-dist-user-setup.service, so the VMs, images and $HOME/shared belong
+## to the desktop user, not root.
 
 ## {{ Taken from qemu-system-common.postinst.
 # Add the kvm group unless it's already there
@@ -30,76 +36,46 @@ fi
 adduser user kvm >/dev/null || true
 adduser user libvirt >/dev/null || true
 
-## Create shared directory and adjust permissions
-mkdir --parents /mnt/gateway-shared
-mkdir --parents /mnt/workstation-shared
-chmod 777 /mnt/gateway-shared
-chmod 777 /mnt/workstation-shared
-
-virsh_session() {
-   virsh -c qemu:///session "$@"
-}
-
-## Doing the following in a temporary directory to avoid modified files should
-## this be interrupted in the middle.
-temp_dir="$(mktemp --directory)"
-cp -r /usr/share/libvirt-dist/xml "${temp_dir}"
-
-if virsh capabilities | grep "<domain type='kvm'>" ; then
-   true "OK: found KVM"
-else
-   ## replace the 'kvm' domain type with 'qemu'
-   search="<domain type='kvm'>"
-   replace="<domain type='qemu'>"
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
-
-   search="<cpu mode='host-passthrough'/>"
-   replace=""
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
-
-   ## https://forums.whonix.org/t/whonix-host-operating-system/3931/251
-   search="<pvspinlock state='on'/>"
-   replace=""
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
-
-   ## https://forums.whonix.org/t/whonix-host-operating-system/3931/284
-   search="<vcpu placement='static' cpuset='0'>1</vcpu>"
-   replace=""
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Gateway.xml"
-
-   ## https://forums.whonix.org/t/whonix-host-operating-system/3931/284
-   search="<vcpu placement='static' cpuset='1'>1</vcpu>"
-   replace=""
-   str_replace "${search}" "${replace}" "${temp_dir}/xml/Whonix-Workstation.xml"
+## Shared folder: group-scoped so both "user" and "sysmaint" reach it. A single
+## $HOME dir cannot be cross-account traversable, so the share is a system path
+## /mnt/shared, root:kvmsf, mode 2770 (setgid + group rwx, NO world, NO sticky --
+## secure, not chmod 777). "sysmaint" and the qemu:///session "user" reach it via
+## the kvmsf group; setgid: new entries inherit the group.
+## Why these exact bits (the full owner/sticky matrix, so it is not re-litigated):
+##  - accessmode=mapped runs QEMU as "user" and stores the guest's ownership/mode
+##    as user.virtfs.* xattrs on this dir. The kernel (xattr_permission) blocks a
+##    NON-owner from setting user.* xattrs ONLY on a STICKY dir -- so the dir must
+##    be NON-sticky, else the guest-side 'chmod 3770' fixup fails EPERM and the
+##    share loses group access. A kvmsf member with group-write on a non-sticky
+##    dir CAN set them (verified empirically).
+##  - root ownership (NOT "user") stops a member from chmod-ing the host dir open
+##    to every local uid, or chgrp-ing it away.
+##  => root:kvmsf 2770 is the ONLY mode satisfying both; verified on a real boot.
+## INHERENT residual (unavoidable, documented): without the sticky bit a kvmsf
+## member can unlink/replace ANOTHER member's HOST file here. The sticky bit would
+## fix that but breaks the mapped xattr write above -- mutually exclusive. The
+## GUEST-side view still gets full sticky protection: mount-shared stores mode
+## 3770 in the mapped xattrs, which the guest kernel enforces.
+## accessmode=mapped keeps the guest's own perms decoupled from these host
+## perms. Path overridable for tests.
+## SUID/exec of this host dir: handled by security-misc remount-secure, not a
+## bespoke unit here. remount-secure rbinds /mnt onto itself at boot with
+## nosuid,nodev (level >= 1) plus noexec (default level 3), so this subdir
+## inherits them -- a setuid/exec file dropped here by one host account cannot
+## escalate when another runs it. Reopened only by remount_secure_level=0 or the
+## noremountsecure cmdline off-switch; the Kicksecure/Whonix host base defaults
+## to level 3. (Cross-member UNLINK above is separate and remains.)
+shared_dir="${LIBVIRT_DIST_SHARED_DIR:-/mnt/shared}"
+if ! getent group kvmsf >/dev/null; then
+   addgroup --system kvmsf
 fi
-
-test -f "${temp_dir}/xml/Whonix-Gateway.xml"
-test -f "${temp_dir}/xml/Whonix-Workstation.xml"
-
-virsh_session define "${temp_dir}/xml/Whonix-Gateway.xml"
-virsh_session define "${temp_dir}/xml/Whonix-Workstation.xml"
-
-## virt-xml --add-device appends unconditionally, so a reinstall would add a
-## duplicate shared-filesystem device.
-domain_has_filesystem_source() {
-   virsh_session dumpxml --inactive "${1}" \
-      | grep --fixed-strings 'source' \
-      | grep --fixed-strings "dir='${2}'" >/dev/null 2>&1
-}
-add_shared_filesystem() {
-   local domain source
-   domain="${1}"
-   source="${2}"
-   if ! domain_has_filesystem_source "${domain}" "${source}"; then
-      virt-xml --connect qemu:///session "${domain}" --add-device --filesystem "source=${source},target=shared,type=mount,accessmode=mapped"
-   fi
-}
-
-add_shared_filesystem "Whonix-Gateway" "/mnt/gateway-shared"
-add_shared_filesystem "Whonix-Workstation" "/mnt/workstation-shared"
-
-mkdir --parents /var/lib/libvirt-dist
-touch /var/lib/libvirt-dist/install.done
+adduser user kvmsf >/dev/null || true
+if getent passwd sysmaint >/dev/null; then
+   adduser sysmaint kvmsf >/dev/null || true
+fi
+mkdir --parents -- "${shared_dir}"
+## root:kvmsf 2770 -- see the header: non-sticky so qemu-as-"user" (a kvmsf
+## member) can write the mapped user.virtfs.* xattrs, root-owned so no member can
+## chmod the host dir open.
+chown root:kvmsf -- "${shared_dir}"
+chmod 2770 -- "${shared_dir}"

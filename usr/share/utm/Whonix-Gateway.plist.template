@@ -14,7 +14,7 @@
 			<key>DynamicResolution</key>
 			<true/>
 			<key>Hardware</key>
-			<string>virtio-gpu-gl-pci</string>
+			<string>virtio-gpu-pci</string>
 			<key>NativeResolution</key>
 			<false/>
 			<key>UpscalingFilter</key>
@@ -27,7 +27,7 @@
 			<key>Identifier</key>
 			<string>0</string>
 			<key>ImageName</key>
-			<string>_FLAVOR_.raw</string>
+			<string>_FLAVOR_.qcow2</string>
 			<key>ImageType</key>
 			<string>Disk</string>
 			<key>Interface</key>
@@ -62,7 +62,7 @@
 	<dict>
 		<key>AdditionalArguments</key>
 		<array>
-			<string>-device virtio-net-pci,netdev=external -device virtio-net-pci,netdev=internal -netdev user,id=external,ipv6=off,net=10.0.2.0/24 -netdev socket,id=internal,listen=:8010</string>
+			<string>-device virtio-net-pci,netdev=external -device virtio-net-pci,netdev=internal -netdev user,id=external,ipv6=off,net=10.0.2.0/24 -netdev socket,id=internal,listen=127.0.0.1:8010</string>
 		</array>
 		<key>BalloonDevice</key>
 		<false/>

@@ -19,3 +19,13 @@ dist-ai-tests:
   ## repo sibling so the pre-push-static gate's shellcheck FOLLOWS the source
   ## instead of emitting SC1091 -- no per-line '# shellcheck disable=SC1091'.
   helper-scripts: true
+  ## boot_shared_mount + shared_folder need a real libvirt/qemu host the hosted
+  ## runner lacks: virt-xml (virtinst), a multi-GB Whonix-Workstation qcow2, root
+  ## nbd, and a vm-config-dist sibling. Absent, they exit 77 (target-absent), and
+  ## the suite runner aggregates to 77 (target-absent outranks pass), which under
+  ## --component is an unauthorized skip -> FAIL. mode_flip_behaviour runs
+  ## unconditionally (pure stub) and gives real coverage here; the VM/boot cases
+  ## run for real on the KVM lane. A genuine FAIL (exit 1) still reds the build --
+  ## allow-skip tolerates only the 77/78 skip codes, never a failure.
+  allow-skip:
+    - libvirt-dist-tests
